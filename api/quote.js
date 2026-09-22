@@ -101,14 +101,16 @@ export default async function handler(req, res) {
     email,
     phone,
     message: [notes, detailLines].filter(Boolean).join("\n\n"),
+    lead_status: (b.partial === true || b.partial === "true") ? "partial" : "complete",
+    partial: (b.partial === true || b.partial === "true"),
     ...details,
   };
 
   await Promise.allSettled([
     forwardToBrokerIQ(lead),
     sendEmail(
-      `New DUI License Reinstatement lead: ${name || email || phone || "(no name)"}`,
-      `<h2>New DUI License Reinstatement lead</h2>
+      `${(b.partial===true||b.partial==="true") ? "[PARTIAL LEAD] " : ""}New DUI License Reinstatement lead: ${name || email || phone || "(no name)"}`,
+      `<h2>${(b.partial===true||b.partial==="true") ? "[PARTIAL — form not completed] " : ""}New DUI License Reinstatement lead</h2>
        <p><b>Name:</b> ${esc(name)}</p>
        <p><b>Email:</b> ${esc(email)}</p>
        <p><b>Phone:</b> ${esc(phone)}</p>
