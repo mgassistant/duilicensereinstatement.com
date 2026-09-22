@@ -585,7 +585,7 @@
   }
   next.addEventListener('click',()=>{if(validate()&&current<steps.length-1){current++;draw();}});
   back.addEventListener('click',()=>{if(current>0){current--;draw();}});
-  form.addEventListener('submit',(e)=>{
+  form.addEventListener('submit',async (e)=>{
     e.preventDefault();
     if(!validate())return;
     const data=new FormData(form);
@@ -594,7 +594,18 @@
       if(payload[k]) payload[k]=Array.isArray(payload[k])?[...payload[k],v]:[payload[k],v];
       else payload[k]=v;
     }
-    console.log('Lead payload ready for secure CRM/API endpoint',payload);
+
+    // Send the lead to our endpoint (forwards to BrokerIQ + emails the agency).
+    // Fail-open: the visitor still sees success even if the request errors.
+    try {
+      await fetch('/api/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.error('Lead submission error:', err);
+    }
 
     /*
       ENGINEERING HANDOFF
