@@ -585,16 +585,43 @@
     for(const field of req){if(!field.checkValidity()){field.reportValidity();return false;}}
     return true;
   }
-  next.addEventListener('click',()=>{if(validate()&&current<steps.length-1){current++;draw();}});
+  // ---- Partial / abandoned lead capture ----
+  let _partialSent = false, _submitted = false;
+  function _collect(){ const p={}; for(const el of form.elements){ if(el.name && el.value) p[el.name]=el.value; } return p; }
+  function _hasContact(p){ return ((p.email||'').includes('@')) || ((p.phone||'').replace(/\D/g,'').length>=10); }
+  function _firePartial(beacon){
+    if(_partialSent || _submitted) return;
+    const p=_collect();
+    if(!(_hasContact(p) && (p.first_name||p.last_name||p.name))) return;
+    p.partial=true; _partialSent=true;
+    const body=JSON.stringify(p);
+    try{
+      if(beacon && navigator.sendBeacon){ navigator.sendBeacon('/api/quote', new Blob([body],{type:'application/json'})); }
+      else { fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}); }
+    }catch{}
+  }
+  window.addEventListener('pagehide',()=>_firePartial(true));
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') _firePartial(true); });
+  next.addEventListener('click',()=>{if(validate()&&current<steps.length-1){_firePartial(false);current++;draw();}});
   back.addEventListener('click',()=>{if(current>0){current--;draw();}});
   form.addEventListener('submit',async (e)=>{
     e.preventDefault();
     if(!validate())return;
+    _submitted = true; _partialSent = true;
     const data=new FormData(form);
     const payload={};
     for(const [k,v] of data.entries()){
       if(payload[k]) payload[k]=Array.isArray(payload[k])?[...payload[k],v]:[payload[k],v];
       else payload[k]=v;
+    }
+
+    const _em = (payload.email || '').trim();
+    if (_em && _em.includes('@')) {
+      try {
+        const _vr = await fetch('/api/verify-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: _em }) });
+        const _vj = await _vr.json();
+        if (_vj && _vj.ok === false) { alert('Please enter a valid email address so we can reach you.'); return; }
+      } catch {}
     }
 
     // Send the lead to our endpoint (forwards to BrokerIQ + emails the agency).
