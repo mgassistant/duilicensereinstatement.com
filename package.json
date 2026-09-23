@@ -1,0 +1,10 @@
+{
+  "name": "duilicensereinstatement",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static DUI license reinstatement lead-funnel site with Vercel serverless API functions (no build step).",
+  "engines": {
+    "node": ">=18"
+  }
+}
