@@ -12,6 +12,8 @@
 // Fail-open: never blocks the visitor — always returns { ok: true } even if a
 // downstream (BrokerIQ / Resend) call fails; errors are logged server-side.
 
+import { badEmailFlag, clientIP, emailVerdictNote, rawWithEmailVerdict, verifyEmail } from "./_emailVerification.js";
+
 const BROKERIQ_URL = process.env.BROKERIQ_URL || "https://www.broker-iq.com/api/leads/inbound";
 // Defaults to the DUI-Help BrokerIQ tenant so DUI leads route to DUI auto-contact.
 const BROKERIQ_TENANT_ID = process.env.BROKERIQ_TENANT_ID || "6db07734-dd08-49ff-9a23-2e5c5f9fb46a";
@@ -24,6 +26,10 @@ function esc(s) {
 }
 
 async function readBody(req) {
+  // A sendBeacon / non-JSON content type can arrive unparsed, as a Buffer.
+  if (Buffer.isBuffer(req.body)) {
+    try { return JSON.parse(req.body.toString("utf8") || "{}") || {}; } catch { return {}; }
+  }
   if (req.body && typeof req.body === "object") return req.body;
   if (typeof req.body === "string" && req.body) {
     try { return JSON.parse(req.body); } catch { return {}; }
@@ -106,13 +112,25 @@ export default async function handler(req, res) {
     ...details,
   };
 
+  // ZeroBounce, server-side. The form runs this check in the browser too, but
+  // partial (abandoned) captures, sendBeacon posts and direct POSTs skip it, so
+  // every lead is verified here. Soft-flag only: a bad address tags the lead for
+  // review (raw.suspected_spam / raw.spam_flags), it is never dropped, because
+  // the phone number may still be good. Fails open.
+  const emailCheck = await verifyEmail(email, clientIP(req));
+  lead.raw = rawWithEmailVerdict(lead.raw, emailCheck);
+  // Log only the flag this check produced: a client-supplied raw.spam_flags may
+  // not be an array, and must never be able to throw before the lead is forwarded.
+  const emailFlag = badEmailFlag(emailCheck);
+  if (emailFlag) console.log(`[SPAM] Soft-flagged [${emailFlag}] lead from ${lead.source}`);
+
   await Promise.allSettled([
     forwardToBrokerIQ(lead),
     sendEmail(
       `${(b.partial===true||b.partial==="true") ? "[PARTIAL LEAD] " : ""}New DUI License Reinstatement lead: ${name || email || phone || "(no name)"}`,
       `<h2>${(b.partial===true||b.partial==="true") ? "[PARTIAL — form not completed] " : ""}New DUI License Reinstatement lead</h2>
        <p><b>Name:</b> ${esc(name)}</p>
-       <p><b>Email:</b> ${esc(email)}</p>
+       <p><b>Email:</b> ${esc(email)}${esc(emailVerdictNote(email, emailCheck))}</p>
        <p><b>Phone:</b> ${esc(phone)}</p>
        ${detailLines ? `<p><b>Details:</b></p><pre>${esc(detailLines)}</pre>` : ""}
        ${notes ? `<p><b>Notes:</b> ${esc(notes)}</p>` : ""}
